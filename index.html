@@ -1,0 +1,1639 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Patient Centered Medication Comprehension Tool</title>
+<script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Serif+Display&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --blue: #1a56db;
+    --blue-dark: #1141a8;
+    --blue-pale: #eff4ff;
+    --green-pale: #ecfdf5;
+    --green: #047857;
+    --red-pale: #fef2f2;
+    --red: #b91c1c;
+    --amber-pale: #fffbeb;
+    --amber: #92400e;
+    --gray-50: #f8fafc;
+    --gray-100: #f1f5f9;
+    --gray-200: #e2e8f0;
+    --gray-400: #94a3b8;
+    --gray-600: #475569;
+    --gray-800: #1e293b;
+    --radius: 14px;
+    --radius-sm: 8px;
+    --shadow: 0 1px 3px rgba(0,0,0,0.07), 0 4px 16px rgba(0,0,0,0.05);
+  }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--gray-50);
+    color: var(--gray-800);
+    min-height: 100vh;
+  }
+
+  .page {
+    max-width: 680px;
+    margin: 0 auto;
+    padding: 32px 20px 64px;
+  }
+
+  /* ── Header ── */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 32px;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .header-left h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 26px;
+    font-weight: 400;
+    color: var(--gray-800);
+    line-height: 1.2;
+  }
+
+  .header-left p {
+    font-size: 14px;
+    color: var(--gray-600);
+    margin-top: 4px;
+  }
+
+  .lang-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: white;
+    border: 1px solid var(--gray-200);
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    color: var(--gray-600);
+    font-family: 'DM Sans', sans-serif;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+
+  .lang-toggle:hover { border-color: var(--blue); color: var(--blue); }
+  .lang-toggle:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+
+  /*  Cards  */
+  .card {
+    background: white;
+    border-radius: var(--radius);
+    border: 1px solid var(--gray-200);
+    box-shadow: var(--shadow);
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+
+  .card-title {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--gray-400);
+    margin-bottom: 16px;
+  }
+
+  /*  Stepper  */
+  .stepper {
+    display: flex;
+    gap: 0;
+    margin-bottom: 28px;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    border: 1px solid var(--gray-200);
+  }
+
+  .step {
+    flex: 1;
+    padding: 10px 6px;
+    font-size: 12px;
+    font-weight: 500;
+    text-align: center;
+    color: var(--gray-400);
+    background: white;
+    border-right: 1px solid var(--gray-200);
+    transition: background 0.2s, color 0.2s;
+    line-height: 1.3;
+  }
+
+  .step:last-child { border-right: none; }
+  .step.active { background: var(--blue); color: white; }
+  .step.complete { background: var(--green-pale); color: var(--green); }
+
+  .spinner {
+    width: 28px; height: 28px; margin: 0 auto;
+    border: 3px solid var(--gray-200);
+    border-top-color: var(--blue);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /*  Med Select  */
+  .select-wrap {
+    position: relative;
+  }
+
+  .select-wrap::after {
+    content: '';
+    position: absolute;
+    right: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 0;
+    height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 6px solid var(--gray-400);
+    pointer-events: none;
+  }
+
+  label {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--gray-600);
+    margin-bottom: 6px;
+  }
+
+  select, input[type="text"] {
+    width: 100%;
+    padding: 11px 14px;
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-sm);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 15px;
+    color: var(--gray-800);
+    background: white;
+    appearance: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    outline: none;
+  }
+
+  select:focus, input[type="text"]:focus {
+    border-color: var(--blue);
+    box-shadow: 0 0 0 3px rgba(26,86,219,0.1);
+  }
+
+  /*  Inputs group  */
+  .input-group { margin-bottom: 14px; }
+
+  /*  Buttons  */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 11px 20px;
+    border-radius: var(--radius-sm);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    transition: background 0.15s, transform 0.1s;
+    outline: none;
+    text-decoration: none;
+  }
+
+  .btn:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+  .btn:active { transform: scale(0.98); }
+
+  .btn-primary {
+    background: var(--blue);
+    color: white;
+    width: 100%;
+    margin-top: 8px;
+  }
+
+  .btn-primary:hover { background: var(--blue-dark); }
+  .btn-primary:disabled { background: var(--gray-200); color: var(--gray-400); cursor: not-allowed; }
+
+  .btn-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 16px;
+  }
+
+  .btn-outline {
+    flex: 1;
+    background: white;
+    color: var(--gray-600);
+    border: 1px solid var(--gray-200);
+    font-size: 13px;
+    padding: 9px 12px;
+  }
+
+  .btn-outline:hover { border-color: var(--blue); color: var(--blue); background: var(--blue-pale); }
+
+  /*  Med info card  */
+  .med-name {
+    font-family: 'DM Serif Display', serif;
+    font-size: 28px;
+    font-weight: 400;
+    margin-bottom: 4px;
+  }
+
+  .med-badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: var(--blue-pale);
+    color: var(--blue-dark);
+    margin-bottom: 20px;
+  }
+
+  .med-rows { display: flex; flex-direction: column; gap: 14px; }
+
+  .med-row {
+    display: flex;
+    gap: 12px;
+    padding: 14px;
+    background: var(--gray-50);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--gray-100);
+    align-items: flex-start;
+  }
+
+  .med-row-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+
+  .icon-purpose { background: #eff4ff; }
+  .icon-how { background: #ecfdf5; }
+  .icon-side { background: #fffbeb; }
+
+  .med-row-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--gray-400);
+    margin-bottom: 3px;
+  }
+
+  .dosage-warning {
+    margin-top: 8px;
+    padding: 8px 10px;
+    background: var(--amber-pale);
+    border: 1px solid #fcd34d;
+    border-radius: 6px;
+    font-size: 16px;
+    color: var(--amber);
+    line-height: 1.5;
+  }
+
+  .med-row-value {
+    font-size: 15px;
+    color: var(--gray-800);
+    line-height: 1.5;
+  }
+
+  /*  QR Panel  */
+  #qrPanel {
+    margin-top: 16px;
+    padding: 16px;
+    background: var(--gray-50);
+    border: 1px solid var(--gray-100);
+    border-radius: var(--radius-sm);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .qr-panel-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+
+  #qrCanvas {
+    border-radius: 8px;
+    display: block;
+  }
+
+  .qr-caption {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--gray-600);
+  }
+
+  .qr-url {
+    font-size: 11px;
+    color: var(--gray-400);
+    word-break: break-all;
+    text-align: center;
+  }
+
+  /*  Score display  */
+  .score-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    margin-top: 10px;
+    padding: 6px 12px;
+    border-radius: 999px;
+  }
+
+  .score-ok { background: var(--green-pale); color: var(--green); }
+  .score-low { background: var(--amber-pale); color: var(--amber); }
+
+  /*  Final result  */
+  .result-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .result-stat {
+    background: var(--gray-50);
+    border: 1px solid var(--gray-100);
+    border-radius: var(--radius-sm);
+    padding: 14px;
+    text-align: center;
+  }
+
+  .result-stat-label { font-size: 11px; color: var(--gray-400); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+  .result-stat-value { font-size: 26px; font-weight: 600; color: var(--gray-800); }
+  .result-stat-value.positive { color: var(--green); }
+
+  .result-message {
+    padding: 14px 16px;
+    border-radius: var(--radius-sm);
+    font-size: 14px;
+    line-height: 1.55;
+  }
+
+  .result-message.good { background: var(--green-pale); color: var(--green); border: 1px solid #a7f3d0; }
+  .result-message.neutral { background: var(--amber-pale); color: var(--amber); border: 1px solid #fcd34d; }
+
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 3px 10px;
+    border-radius: 999px;
+    margin-bottom: 8px;
+  }
+
+  .status-badge.sent { background: var(--green-pale); color: var(--green); }
+  .status-badge.error { background: var(--red-pale); color: var(--red); }
+
+  /*  AI Loading state  */
+  .ai-loading {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px;
+    background: var(--blue-pale);
+    border-radius: var(--radius-sm);
+    border: 1px solid #c7d7f9;
+    font-size: 13px;
+    color: var(--blue-dark);
+    margin-top: 8px;
+  }
+
+  .ai-loading-spinner {
+    width: 18px;
+    height: 18px;
+    border: 2px solid #c7d7f9;
+    border-top-color: var(--blue);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    flex-shrink: 0;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .ai-disclaimer {
+    font-size: 11px;
+    color: var(--gray-400);
+    margin-top: 8px;
+    line-height: 1.4;
+  }
+
+  .ai-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--blue-pale);
+    color: var(--blue-dark);
+    margin-bottom: 12px;
+  }
+
+  /*  Autocomplete suggestions  */
+  .suggestions {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    background: white;
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow);
+    list-style: none;
+    z-index: 50;
+    overflow: hidden;
+    display: none;
+  }
+
+  .suggestions.open { display: block; }
+
+  .suggestions li {
+    padding: 10px 14px;
+    font-size: 15px;
+    cursor: pointer;
+    color: var(--gray-800);
+    border-bottom: 1px solid var(--gray-100);
+    transition: background 0.1s;
+  }
+
+  .suggestions li:last-child { border-bottom: none; }
+  .suggestions li:hover, .suggestions li.active { background: var(--blue-pale); color: var(--blue); }
+
+  .suggestions li mark {
+    background: none;
+    color: var(--blue);
+    font-weight: 600;
+  }
+
+  .med-confirmed {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--green);
+  }
+
+  .med-confirmed .clear-btn {
+    background: none;
+    border: none;
+    color: var(--gray-400);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+
+  .med-confirmed .clear-btn:hover { color: var(--red); background: var(--red-pale); }
+  .input-voice-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .input-voice-wrap input[type="text"] {
+    flex: 1;
+    padding-right: 44px;
+  }
+
+  .mic-btn {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: none;
+    background: var(--gray-100);
+    color: var(--gray-600);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+    flex-shrink: 0;
+    outline: none;
+  }
+
+  .mic-btn:hover { background: var(--blue-pale); color: var(--blue); }
+  .mic-btn:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+
+  .mic-btn.listening {
+    background: #fee2e2;
+    color: var(--red);
+    animation: mic-pulse 1.2s ease-in-out infinite;
+  }
+
+  @keyframes mic-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(185, 28, 28, 0.3); }
+    50% { box-shadow: 0 0 0 6px rgba(185, 28, 28, 0); }
+  }
+
+  /* Voice selector row */
+  .select-voice-row {
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+  }
+
+  .select-voice-row .select-wrap {
+    flex: 1;
+  }
+
+  .mic-btn-select {
+    width: 42px;
+    height: 42px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--gray-200);
+    background: white;
+    color: var(--gray-600);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    flex-shrink: 0;
+    outline: none;
+  }
+
+  .mic-btn-select:hover { background: var(--blue-pale); color: var(--blue); border-color: var(--blue); }
+  .mic-btn-select:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+  .mic-btn-select.listening {
+    background: #fee2e2;
+    color: var(--red);
+    border-color: var(--red);
+    animation: mic-pulse 1.2s ease-in-out infinite;
+  }
+
+  .voice-hint {
+    font-size: 11px;
+    color: var(--gray-400);
+    margin-top: 6px;
+  }
+
+  .no-voice-support .mic-btn,
+  .no-voice-support .mic-btn-select { display: none; }
+
+  /*  Hidden/Shown  */
+  .hidden { display: none !important; }
+
+  /*  Divider  */
+  .divider { border: none; border-top: 1px solid var(--gray-100); margin: 20px 0; }
+
+  /*  Toast  */
+  #toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(80px);
+    background: var(--gray-800);
+    color: white;
+    padding: 10px 20px;
+    border-radius: 999px;
+    font-size: 14px;
+    font-weight: 500;
+    opacity: 0;
+    transition: transform 0.3s, opacity 0.3s;
+    z-index: 99;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+
+  #toast.show {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="header-left">
+      <h1>Patient Centered Medication Guide</h1>
+      <p>Learn about your medicine before and after</p>
+    </div>
+    <button class="lang-toggle" id="langBtn" aria-label="Switch language">
+      <span id="langFlag">🌐</span>
+      <span id="langLabel">Español</span>
+    </button>
+    <select class="lang-toggle" id="langSelect" aria-label="Choose language"
+            style="display:none;width:auto;padding:6px 32px 6px 14px;"></select>
+  </div>
+
+  <!-- Global disclaimer -->
+  <div style="margin:4px 16px 12px;padding:8px 14px;background:#fff5f5;border:1px solid #fca5a5;border-radius:10px;font-size:13px;line-height:1.5;">
+    <p style="margin:0 0 2px;"><strong style="color:#b91c1c;">⚠ This information is general. Always follow your provider's instructions.</strong></p>
+    <p style="margin:0;color:#7f1d1d;">Use this page only to get a simple explanation about your medication.</p>
+  </div>
+
+  <!-- Loading -->
+  <div id="loadingPanel" class="card" style="text-align:center;padding:36px 24px;">
+    <div class="spinner" aria-hidden="true"></div>
+    <p style="margin-top:14px;font-size:14px;color:var(--gray-600);">Loading medication information…</p>
+  </div>
+
+  <!-- Content unavailable -->
+  <div id="contentError" class="card hidden" style="border-color:#fca5a5;background:var(--red-pale);">
+    <p style="font-size:15px;font-weight:600;color:var(--red);margin-bottom:10px;">
+      ⚠ Medication information is unavailable
+    </p>
+    <p style="font-size:14px;line-height:1.6;margin-bottom:8px;">
+      This device can't reach the medication list right now. Please tell clinic staff — do not rely on this page.
+    </p>
+    <p lang="es" style="font-size:14px;line-height:1.6;margin-bottom:8px;color:var(--gray-600);">
+      No se puede acceder a la lista de medicamentos. Avise al personal de la clínica — no use esta página.
+    </p>
+    <p lang="te" style="font-size:14px;line-height:1.7;margin-bottom:16px;color:var(--gray-600);">
+      మందుల సమాచారం అందుబాటులో లేదు. దయచేసి క్లినిక్ సిబ్బందికి తెలియజేయండి — ఈ పేజీని ఉపయోగించవద్దు.
+    </p>
+    <button class="btn btn-primary" id="retryBtn" style="margin-top:0;">
+      Retry · Reintentar · మళ్లీ ప్రయత్నించండి
+    </button>
+    <p id="errorDetail" style="font-size:11px;color:var(--gray-400);margin-top:12px;word-break:break-word;"></p>
+  </div>
+
+  <!-- Saved-copy notice -->
+  <div id="staleBanner" class="hidden" style="margin-bottom:16px;padding:10px 14px;background:var(--amber-pale);border:1px solid #fcd34d;border-radius:var(--radius-sm);font-size:13px;line-height:1.5;color:var(--amber);">
+    <span id="staleText">Showing a saved copy — this device is offline.</span>
+    <button id="staleRetry" style="margin-left:6px;background:none;border:none;text-decoration:underline;color:var(--amber);font-family:inherit;font-size:13px;cursor:pointer;padding:0;">Try again</button>
+  </div>
+
+  <!-- Step indicator -->
+  <div class="stepper hidden" id="stepper" role="progressbar" aria-label="Steps">
+    <div class="step active" id="step1">1. Choose &amp; Pre-test</div>
+    <div class="step" id="step2">2. Learn</div>
+    <div class="step" id="step3">3. Post-test</div>
+    <div class="step" id="step4">4. Results</div>
+  </div>
+
+  <!-- Step 1: Select med + Pre-test -->
+  <div id="pane1" class="hidden">
+    <div class="card">
+      <p class="card-title" id="selectLabel">Choose your medication</p>
+      <label for="medInput" id="medSelectLabel">Medication</label>
+      <div class="select-voice-row">
+        <div style="flex:1;position:relative;">
+          <input type="text" id="medInput" autocomplete="off" placeholder="Type or say a medication name…" aria-autocomplete="list" aria-controls="medSuggestions" />
+          <ul id="medSuggestions" class="suggestions" role="listbox" aria-label="Medication suggestions"></ul>
+        </div>
+        <button class="mic-btn-select" id="micSelect" title="Say medication name" aria-label="Say medication name">🎤</button>
+      </div>
+      <p class="voice-hint" id="voiceHintSelect">Type or say a medication name to select it</p>
+    </div>
+
+    <div class="card" id="preTestCard">
+      <p class="card-title" id="preTitle">Before you read — what do you know?</p>
+      <p style="font-size:13px;color:var(--gray-600);margin-bottom:18px;" id="preSubtitle">Answer as best you can. There are no wrong answers — this is just a baseline.</p>
+
+      <div class="input-group">
+        <label for="pre1" id="pre1Label">What is this medicine for?</label>
+        <div class="input-voice-wrap">
+          <input type="text" id="pre1" autocomplete="off" />
+          <button class="mic-btn" data-target="pre1" title="Speak your answer" aria-label="Speak answer">🎤</button>
+        </div>
+      </div>
+      <div class="input-group">
+        <label for="pre2" id="pre2Label">How will you take it?</label>
+        <div class="input-voice-wrap">
+          <input type="text" id="pre2" autocomplete="off" />
+          <button class="mic-btn" data-target="pre2" title="Speak your answer" aria-label="Speak answer">🎤</button>
+        </div>
+      </div>
+      <div class="input-group">
+        <label for="pre3" id="pre3Label">Any side effects you know of?</label>
+        <div class="input-voice-wrap">
+          <input type="text" id="pre3" autocomplete="off" />
+          <button class="mic-btn" data-target="pre3" title="Speak your answer" aria-label="Speak answer">🎤</button>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="preSubmitBtn" disabled>
+        <span id="preSubmitLabel">Submit &amp; continue</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Step 2: Med card -->
+  <div id="pane2" class="hidden">
+    <div class="card">
+      <div class="med-name" id="medName"></div>
+      <div class="med-badge" id="medBadge">Prescription medication</div>
+      <div class="med-rows">
+        <div class="med-row">
+          <div class="med-row-icon icon-purpose">💊</div>
+          <div>
+            <div class="med-row-label" id="labelPurpose">What it does</div>
+            <div class="med-row-value" id="valPurpose"></div>
+          </div>
+        </div>
+        <div class="med-row">
+          <div class="med-row-icon icon-how">📋</div>
+          <div style="flex:1;">
+            <div class="med-row-label" id="labelHow"> How To Take (General Dosage Information) </div>
+            <div class="med-row-value" id="valHow"></div>
+            <div id="dosageWarningBox" class="dosage-warning hidden">⚠️ <span id="valDosageWarning"></span></div>
+          </div>
+        </div>
+        <div class="med-row">
+          <div class="med-row-icon icon-side">⚠️</div>
+          <div>
+            <div class="med-row-label" id="labelSide">Side effects</div>
+            <div class="med-row-value" id="valSide"></div>
+          </div>
+        </div>
+        <div id="sideWarningBox" class="dosage-warning hidden">⚠️ <span id="valSideWarning"></span></div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-outline" id="listenBtn" aria-label="Listen to medication info">
+          🔊 <span id="listenLabel">Listen</span>
+        </button>
+        <button class="btn btn-outline" id="printBtn" aria-label="Print this medication card">
+          🖨 <span id="printLabel">Print</span>
+        </button>
+        <button class="btn btn-outline" id="qrBtn" aria-label="Generate QR code to share page">
+          📱 <span id="qrLabel">QR Code</span>
+        </button>
+
+      </div>
+
+      <div id="qrPanel" class="hidden">
+        <div class="qr-panel-inner">
+          <canvas id="qrCanvas" aria-label="QR code to open this page"></canvas>
+          <div class="qr-caption" id="qrCaption">Scan to open on another device</div>
+          <div class="qr-url" id="qrUrl"></div>
+        </div>
+      </div>
+
+      <hr class="divider" />
+      <button class="btn btn-primary" id="toPostBtn">
+        <span id="toPostLabel">Take the post-test →</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Step 3: Post-test -->
+  <div id="pane3" class="hidden">
+    <div class="card">
+      <p class="card-title" id="postTitle">Now let's see what you learned</p>
+      <p style="font-size:13px;color:var(--gray-600);margin-bottom:18px;" id="postSubtitle">Answer in your own words — no need to be exact.</p>
+
+      <div class="input-group">
+        <label for="post1" id="post1Label">What is this medicine for?</label>
+        <div class="input-voice-wrap">
+          <input type="text" id="post1" autocomplete="off" />
+          <button class="mic-btn" data-target="post1" title="Speak your answer" aria-label="Speak answer">🎤</button>
+        </div>
+      </div>
+      <div class="input-group">
+        <label for="post2" id="post2Label">How will you take it?</label>
+        <div class="input-voice-wrap">
+          <input type="text" id="post2" autocomplete="off" />
+          <button class="mic-btn" data-target="post2" title="Speak your answer" aria-label="Speak answer">🎤</button>
+        </div>
+      </div>
+      <div class="input-group">
+        <label for="post3" id="post3Label">Any side effects?</label>
+        <div class="input-voice-wrap">
+          <input type="text" id="post3" autocomplete="off" />
+          <button class="mic-btn" data-target="post3" title="Speak your answer" aria-label="Speak answer">🎤</button>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="postSubmitBtn">
+        <span id="postSubmitLabel">See my results</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Step 4: Results -->
+  <div id="pane4" class="hidden">
+    <div class="card">
+      <p class="card-title" id="resultsTitle">Your results</p>
+
+      <div class="result-grid">
+        <div class="result-stat">
+          <div class="result-stat-label" id="preLabel">Before</div>
+          <div class="result-stat-value" id="preVal">—</div>
+        </div>
+        <div class="result-stat">
+          <div class="result-stat-label" id="postLabel">After</div>
+          <div class="result-stat-value" id="postVal">—</div>
+        </div>
+        <div class="result-stat">
+          <div class="result-stat-label" id="improvLabel">Change</div>
+          <div class="result-stat-value positive" id="improvVal">—</div>
+        </div>
+      </div>
+
+      <div class="result-message" id="resultMessage"></div>
+
+      <hr class="divider" />
+
+      <div id="sheetStatus"></div>
+
+      <button class="btn btn-primary" id="restartBtn" style="margin-top:8px;">
+        <span id="restartLabel">Start over</span>
+      </button>
+    </div>
+  </div>
+
+</div><!-- /page -->
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+/*  Data  */
+/*  Data — 30 most common community clinic medications ── */
+/*  All content lives in the Google Sheet. Nothing is bundled here:
+    if the sheet cannot be reached the app says so instead of showing
+    stale or English-only information.  */
+let MEDS = {};
+
+let KEYWORDS = { q1: [], q2: [], q3: [] };
+const SHEET_URL = "https://script.google.com/macros/s/AKfycbwIlfvIbAoJARqLPWdOvbciiQvJM1iFtt8crPQYWHqkA0KxfzzVPcjNu5CH7P_oPgcWQQ/exec";
+                   
+
+/*  Remote content (Google Sheet) config  */
+const CONTENT_URL   = SHEET_URL + "?action=content";
+const CACHE_KEY     = "medTool.content.v1";
+const CACHE_MAX_AGE = 1000 * 60 * 60 * 12;   // reuse cached copy for up to 12h if offline
+const SESSION_ID    = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+const SESSION_START = Date.now();
+
+/*  Languages — replaced by the Languages tab of the sheet if present  */
+let LANGS = [{ code: "en", label: "English", speech: "en-US" }];   /* replaced by the Languages tab */
+const APP = { ready: false, cachedAt: null };
+
+/*  State  */
+let lang = "en";
+let medKey = "";
+let preScore = 0;
+let postScore = 0;
+let preScores = { q1: 0, q2: 0, q3: 0 };
+let postScores = { q1: 0, q2: 0, q3: 0 };
+
+/*  Refs  */
+const $ = id => document.getElementById(id);
+
+/*  i18n strings  */
+let T = {};
+
+/*  The only text hard-coded in this file: shown when the sheet has not
+    supplied a translation for a safety-critical string.  */
+const SAFETY_FALLBACK = "If you have serious or unexpected side effects, stop taking the medicine and call your doctor or pharmacist right away.";
+
+/*  Toast  */
+function showToast(msg, duration = 2500) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), duration);
+}
+
+/*  Language-safe accessors  */
+function tt(l = lang) {
+  return Object.assign({}, T.en || {}, T[l] || {});
+}
+
+function medData(key, l = lang) {
+  const m = MEDS[key];
+  if (!m) return null;
+  const base = m.en || m[Object.keys(m)[0]] || {};
+  const cur = m[l];
+  if (!cur || cur === base) return base;
+  // fall back field by field, so a half-translated row never shows a blank card
+  const pick = f => {
+    const v = cur[f];
+    const filled = Array.isArray(v) ? v.length > 0 : String(v || "").trim().length > 0;
+    return filled ? v : base[f];
+  };
+  return {
+    name: cur.name || base.name || key,
+    purpose: pick("purpose"),
+    how: pick("how"),
+    dosageWarning: pick("dosageWarning"),
+    side: pick("side")
+  };
+}
+
+function langMeta(l = lang) {
+  return LANGS.find(x => x.code === l) || { code: l, label: l, speech: l };
+}
+
+function speechLang() {
+  return langMeta().speech || lang;
+}
+
+function renderLangControl() {
+  const sel = $("langSelect"), btn = $("langBtn");
+  if (!sel || !btn) return;
+  if (LANGS.length > 2) {
+    btn.style.display = "none";
+    sel.style.display = "";
+    sel.innerHTML = "";
+    LANGS.forEach(l => {
+      const o = document.createElement("option");
+      o.value = l.code; o.textContent = l.label;
+      sel.appendChild(o);
+    });
+    sel.value = lang;
+  } else {
+    sel.style.display = "none";
+    btn.style.display = "";
+  }
+}
+
+/*  Which screen is showing: loading / error / the app itself  */
+function setAppState(state, detail) {
+  $("loadingPanel").classList.toggle("hidden", state !== "loading");
+  $("contentError").classList.toggle("hidden", state !== "error");
+  $("stepper").classList.toggle("hidden", state !== "ready");
+  if (state !== "ready") {
+    ["pane1", "pane2", "pane3", "pane4"].forEach(id => $(id).classList.add("hidden"));
+  }
+  if (state === "error") {
+    $("staleBanner").classList.add("hidden");
+    $("errorDetail").textContent = detail ? "Details: " + detail : "";
+  }
+  if (state === "ready" && !APP.ready) {
+    APP.ready = true;
+    activateStep(1);
+  }
+}
+
+function showStaleBanner(savedAt) {
+  const when = savedAt ? new Date(savedAt).toLocaleString() : "earlier";
+  $("staleText").textContent = "Showing a saved copy from " + when +
+    " — this device can't reach the medication list right now.";
+  $("staleBanner").classList.remove("hidden");
+}
+
+function hasContent() {
+  return Object.keys(MEDS).length > 0;
+}
+
+/*  Apply content fetched from the sheet  */
+function applyContent(data) {
+  if (!data || !data.ok) return false;
+  if (!data.meds || !Object.keys(data.meds).length) return false;
+
+  if (Array.isArray(data.languages) && data.languages.length) {
+    LANGS = data.languages;
+    if (!LANGS.some(l => l.code === lang)) lang = LANGS[0].code;
+  }
+
+  if (data.meds && Object.keys(data.meds).length) {
+    Object.keys(data.meds).forEach(key => {
+      MEDS[key] = Object.assign({}, MEDS[key] || {}, data.meds[key]);
+    });
+  }
+
+  if (data.aliases) {
+    Object.keys(data.aliases).forEach(key => {
+      MED_ALIASES[key] = [...new Set([...(MED_ALIASES[key] || []), ...data.aliases[key]])];
+    });
+  }
+  // make sure every med is findable by its name in every language
+  Object.keys(MEDS).forEach(key => {
+    const names = Object.values(MEDS[key]).map(v => (v && v.name ? v.name.toLowerCase() : "")).filter(Boolean);
+    MED_ALIASES[key] = [...new Set([...(MED_ALIASES[key] || []), ...names])];
+  });
+
+  if (data.ui) {
+    Object.keys(data.ui).forEach(code => {
+      T[code] = Object.assign({}, T[code] || {}, data.ui[code]);
+    });
+  }
+
+  if (data.keywords) {
+    Object.keys(data.keywords).forEach(q => {
+      KEYWORDS[q] = [...new Set([...(KEYWORDS[q] || []), ...data.keywords[q]])];
+    });
+  }
+  return true;
+}
+
+async function loadContent() {
+  if (!hasContent()) setAppState("loading");
+  let usedCache = false;
+
+  // 1. a previously downloaded copy lets a tablet keep working through a dropout
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (raw) {
+      const cached = JSON.parse(raw);
+      if (Date.now() - cached.savedAt < CACHE_MAX_AGE && applyContent(cached.data)) {
+        usedCache = true;
+        APP.cachedAt = cached.savedAt;
+        renderLangControl();
+        applyLang();
+      }
+    }
+  } catch (e) { /* ignore a bad cache */ }
+
+  // 2. always try for the live version
+  try {
+    const res = await fetch(CONTENT_URL, { method: "GET", redirect: "follow" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    if (!applyContent(data)) throw new Error("The sheet returned no medications");
+    try {
+      localStorage.setItem(CACHE_KEY, JSON.stringify({ savedAt: Date.now(), data }));
+    } catch (e) {}
+    renderLangControl();
+    applyLang();
+    if (medKey && MEDS[medKey]) renderMedCard();
+    $("staleBanner").classList.add("hidden");
+    setAppState("ready");
+    return true;
+  } catch (err) {
+    console.error("Could not load content from the sheet:", err);
+    if (usedCache) {
+      setAppState("ready");
+      showStaleBanner(APP.cachedAt);
+    } else {
+      setAppState("error", err && err.message ? err.message : String(err));
+    }
+    return false;
+  }
+}
+
+/*  Scoring  */
+function scoreInput(inputId, keywords) {
+  const val = $(inputId).value.toLowerCase().trim();
+  if (!val || val.length < 2) return 0;
+
+  // 1. Direct keyword match (original method)
+  if (keywords.some(k => val.includes(k.toLowerCase()))) return 1;
+
+  // 2. Semantic overlap: compare patient answer against the actual med card text
+  const fieldMap = { pre1:"purpose", pre2:"how", pre3:"side", post1:"purpose", post2:"how", post3:"side" };
+  const field = fieldMap[inputId];
+  if (field && medKey && MEDS[medKey]) {
+    const entry = MEDS[medKey] || {};
+    const sources = [entry[lang] && entry[lang][field], medData(medKey)[field]];
+    const medText = sources
+      .map(v => Array.isArray(v) ? v.join(" ") : (v || ""))
+      .join(" ")
+      .toLowerCase();
+    const stopWords = new Set(["the","and","or","for","in","of","to","a","an","is","it","be","as","at","by","on","not","this","with","are","was","has","have","that","from","your","you","if","may","can","do","its","any","i","my","we","me","take","taken","used","use"]);
+    // \p{M} keeps Telugu/Devanagari vowel signs attached; ZWNJ/ZWJ keep conjuncts whole
+    const tokenize = str => (str.match(/[\p{L}\p{N}][\p{L}\p{N}\p{M}\u200c\u200d]{2,}/gu) || [])
+      .filter(w => !stopWords.has(w));
+    const answerWords = tokenize(val);
+    const cardWords = new Set(tokenize(medText));
+    // Award point if any meaningful answer word appears in or partially matches med card text
+    const overlap = answerWords.filter(w => cardWords.has(w) || [...cardWords].some(c => c.includes(w) || w.includes(c)));
+    if (overlap.length >= 1) return 1;
+  }
+  return 0;
+}
+
+/*  Render UI text  */
+function applyLang() {
+  const t = tt();
+  const ids = ["langLabel","selectLabel","medSelectLabel","preTitle","preSubtitle",
+    "pre1Label","pre2Label","pre3Label","preSubmitLabel","labelPurpose","labelHow",
+    "labelSide","listenLabel","printLabel","qrLabel","toPostLabel","postTitle",
+    "postSubtitle","post1Label","post2Label","post3Label","postSubmitLabel",
+    "resultsTitle","preLabel","postLabel","improvLabel","restartLabel","medBadge","qrCaption"];
+
+  ids.forEach(id => { if ($(id) && t[id]) $(id).textContent = t[id]; });
+
+  // toggle button shows the NEXT language; the dropdown shows the current one
+  const codes = LANGS.map(l => l.code);
+  const next = LANGS[(codes.indexOf(lang) + 1) % LANGS.length];
+  if ($("langLabel") && next) $("langLabel").textContent = next.label;
+  if ($("langSelect")) $("langSelect").value = lang;
+  document.documentElement.lang = lang;
+
+  if (medKey) renderMedCard();
+  // Update input placeholder for language
+  const inp = $("medInput");
+  if (inp && !medKey) inp.placeholder = t.medPlaceholder || "Type or say a medication name…";
+}
+
+/*  Med card  */
+function renderBullets(el, value) {
+  el.innerHTML = "";
+  const items = Array.isArray(value) ? value : (value ? [String(value).trim()] : []);
+  if (items.length > 1) {
+    const ul = document.createElement("ul");
+    ul.style.cssText = "margin:6px 0 0 16px;padding:0;font-size:15px;line-height:1.8;";
+    items.forEach(item => {
+      const li = document.createElement("li");
+      li.textContent = cap(String(item).trim());
+      ul.appendChild(li);
+    });
+    el.appendChild(ul);
+  } else {
+    // Single item — plain text, no bullet
+    const p = document.createElement("p");
+    p.style.cssText = "margin:4px 0 0;font-size:15px;line-height:1.6;";
+    p.textContent = Array.isArray(value) ? (value[0] || "") : (value || "");
+    el.appendChild(p);
+  }
+}
+
+function renderMedCard() {
+  const med = medData(medKey);
+  if (!med) return;
+  $("medName").textContent = med.name;
+  renderBullets($("valPurpose"), med.purpose);
+  renderBullets($("valHow"), med.how);
+  renderBullets($("valSide"), med.side);
+
+  // Dosage warning box
+  const warnBox = $("dosageWarningBox");
+  if (med.dosageWarning) {
+    $("valDosageWarning").textContent = med.dosageWarning;
+    warnBox.classList.remove("hidden");
+  } else {
+    warnBox.classList.add("hidden");
+  }
+
+  // Side effects warning — always shown
+  $("valSideWarning").textContent = tt().sideWarning || SAFETY_FALLBACK;
+  $("sideWarningBox").classList.remove("hidden");
+}
+
+function cap(str) { return str.charAt(0).toUpperCase() + str.slice(1); }
+
+/*  Steps  */
+function activateStep(n) {
+  [1,2,3,4].forEach(i => {
+    const el = $("step" + i);
+    el.classList.remove("active","complete");
+    if (i < n) el.classList.add("complete");
+    else if (i === n) el.classList.add("active");
+  });
+  ["pane1","pane2","pane3","pane4"].forEach((id, idx) => {
+    $(id).classList.toggle("hidden", idx + 1 !== n);
+  });
+}
+
+/*  Events  */
+
+//  Smart medication input + autocomplete 
+let MED_ALIASES = {};   /* comes from the aliases column of each Medications_<lang> tab */
+
+function fuzzyMatch(query) {
+  const q = query.toLowerCase().trim();
+  if (!q) return [];
+  return Object.keys(MEDS).filter(key => {
+    const terms = [...(MED_ALIASES[key] || [])];
+    Object.values(MEDS[key]).forEach(v => { if (v && v.name) terms.push(v.name.toLowerCase()); });
+    return terms.some(a => a.startsWith(q) || a.includes(q));
+  });
+}
+
+function selectMed(key) {
+  if (!MEDS[key]) return;
+  medKey = key;
+  const name = medData(key).name;
+  $("medInput").value = name;
+  closeSuggestions();
+  $("preSubmitBtn").disabled = false;
+  ["pre1","pre2","pre3"].forEach(id => $(id).value = "");
+  showToast("✓ " + name);
+}
+
+function closeSuggestions() {
+  $("medSuggestions").classList.remove("open");
+  $("medSuggestions").innerHTML = "";
+}
+
+function renderSuggestions(matches, query) {
+  const ul = $("medSuggestions");
+  ul.innerHTML = "";
+  if (!matches.length) { ul.classList.remove("open"); return; }
+  matches.forEach(key => {
+    const name = medData(key).name;
+    const li = document.createElement("li");
+    li.setAttribute("role", "option");
+    const idx = name.toLowerCase().indexOf(query.toLowerCase());
+    if (idx >= 0) {
+      li.innerHTML = name.slice(0, idx) +
+        "<mark>" + name.slice(idx, idx + query.length) + "</mark>" +
+        name.slice(idx + query.length);
+    } else {
+      li.textContent = name;
+    }
+    li.addEventListener("mousedown", (e) => { e.preventDefault(); selectMed(key); });
+    ul.appendChild(li);
+  });
+  ul.classList.add("open");
+}
+
+$("medInput").addEventListener("input", () => {
+  const q = $("medInput").value;
+  if (medKey) { medKey = ""; $("preSubmitBtn").disabled = true; }
+  renderSuggestions(fuzzyMatch(q), q);
+});
+
+$("medInput").addEventListener("blur", () => {
+  setTimeout(closeSuggestions, 150);
+});
+
+$("medInput").addEventListener("keydown", (e) => {
+  const ul = $("medSuggestions");
+  const items = [...ul.querySelectorAll("li")];
+  const activeEl = ul.querySelector("li.active");
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    const next = activeEl ? activeEl.nextElementSibling : items[0];
+    if (next) { activeEl?.classList.remove("active"); next.classList.add("active"); }
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    const prev = activeEl ? activeEl.previousElementSibling : items[items.length - 1];
+    if (prev) { activeEl?.classList.remove("active"); prev.classList.add("active"); }
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    const activeMatch = activeEl ? fuzzyMatch($("medInput").value)[0] : null;
+    if (activeMatch) {
+      selectMed(activeMatch);
+    } else {
+      closeSuggestions();
+    }
+  } else if (e.key === "Escape") {
+    closeSuggestions();
+  }
+});
+
+$("medInput").addEventListener("change", () => {
+  const q = $("medInput").value.trim();
+  const localMatch = fuzzyMatch(q)[0];
+  if (localMatch) {
+    selectMed(localMatch);
+  }
+});
+
+// Language toggle
+$("langBtn").addEventListener("click", () => {
+  const codes = LANGS.map(l => l.code);
+  lang = codes[(codes.indexOf(lang) + 1) % codes.length];
+  applyLang();
+});
+
+$("langSelect").addEventListener("change", (e) => {
+  lang = e.target.value;
+  applyLang();
+});
+
+// Pre-test submit
+$("preSubmitBtn").addEventListener("click", () => {
+  if (!medKey) return;
+  preScores = {
+    q1: scoreInput("pre1", KEYWORDS.q1),
+    q2: scoreInput("pre2", KEYWORDS.q2),
+    q3: scoreInput("pre3", KEYWORDS.q3)
+  };
+  preScore = preScores.q1 + preScores.q2 + preScores.q3;
+  renderMedCard();
+  activateStep(2);
+});
+
+// Listen
+$("listenBtn").addEventListener("click", () => {
+  if (!medKey) return;
+  const med = medData(medKey);
+  if (!med) return;
+  const toText = v => Array.isArray(v) ? v.join(". ") : v;
+  const utterance = new SpeechSynthesisUtterance(`${med.name}. ${toText(med.purpose)}. ${toText(med.how)}. ${toText(med.side)}`);
+  utterance.lang = speechLang();
+  speechSynthesis.cancel();
+  speechSynthesis.speak(utterance);
+  showToast(tt().toastListen || "Reading aloud\u2026");
+});
+
+// Print
+$("printBtn").addEventListener("click", () => {
+  if (!medKey) return;
+  const med = medData(medKey);
+  if (!med) return;
+  const t = tt();
+  const w = window.open("", "_blank");
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+    <title>${med.name}</title>
+    <style>body{font-family:Arial,sans-serif;padding:40px;max-width:520px;margin:auto;}
+    h1{margin-bottom:4px;}p{line-height:1.6;}b{display:block;margin-top:16px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#666;}</style>
+    </head><body>
+    <h1>${med.name}</h1>
+    <b>${$("labelPurpose").textContent.trim()}</b><p>${Array.isArray(med.purpose)?med.purpose.map(b=>`• ${b}`).join("<br>"):med.purpose}</p>
+    <b>${$("labelHow").textContent.trim()}</b><p>${Array.isArray(med.how)?med.how.map(b=>`• ${b}`).join("<br>"):med.how}</p>
+    <b>${$("labelSide").textContent.trim()}</b><p>${Array.isArray(med.side)?med.side.map(b=>`• ${b}`).join("<br>"):med.side}</p>
+    </body></html>`);
+  w.document.close();
+  w.focus();
+  w.print();
+  showToast(tt().toastPrint || "Opening print view\u2026");
+});
+
+// QR — encodes the hosted page URL
+const HOSTED_URL = "https://your-clinic.example.com/medClarity.html";
+
+$("qrBtn").addEventListener("click", () => {
+  if (!medKey) return;
+  const panel = $("qrPanel");
+  // Toggle off if already showing
+  if (!panel.classList.contains("hidden")) {
+    panel.classList.add("hidden");
+    return;
+  }
+  const canvas = $("qrCanvas");
+  QRCode.toCanvas(canvas, HOSTED_URL, { width: 180, margin: 2 }, err => {
+    if (!err) {
+      $("qrUrl").textContent = HOSTED_URL;
+      panel.classList.remove("hidden");
+      showToast(tt().toastQR || "QR code generated below");
+    }
+  });
+});
+
+
+
+// To post-test
+$("toPostBtn").addEventListener("click", () => {
+  ["post1","post2","post3"].forEach(id => $(id).value = "");
+  activateStep(3);
+});
+
+// Post-test submit
+$("postSubmitBtn").addEventListener("click", () => {
+  postScores = {
+    q1: scoreInput("post1", KEYWORDS.q1),
+    q2: scoreInput("post2", KEYWORDS.q2),
+    q3: scoreInput("post3", KEYWORDS.q3)
+  };
+  postScore = postScores.q1 + postScores.q2 + postScores.q3;
+  const improvement = postScore - preScore;
+
+  $("preVal").textContent = preScore + "/3";
+  $("postVal").textContent = postScore + "/3";
+  const sign = improvement > 0 ? "+" : improvement < 0 ? "" : "±";
+  $("improvVal").textContent = sign + improvement;
+  $("improvVal").className = "result-stat-value" + (improvement > 0 ? " positive" : "");
+
+  const t = tt();
+  const msgEl = $("resultMessage");
+  if (improvement > 0 || postScore >= 2) {
+    msgEl.className = "result-message good";
+    msgEl.textContent = t.msgGood || "Nice work — your understanding improved.";
+  } else {
+    msgEl.className = "result-message neutral";
+    msgEl.textContent = t.msgNeutral || "Good effort. Read the medication card again if anything is unclear, and ask your pharmacist or doctor.";
+  }
+
+  activateStep(4);
+  sendToSheet(t);
+});
+
+// Restart
+$("restartBtn").addEventListener("click", () => {
+  medKey = "";
+  preScore = 0;
+  postScore = 0;
+  preScores = { q1: 0, q2: 0, q3: 0 };
+  postScores = { q1: 0, q2: 0, q3: 0 };
+  $("medInput").value = ""; closeSuggestions();
+  $("preSubmitBtn").disabled = true;
+  ["pre1","pre2","pre3","post1","post2","post3"].forEach(id => $(id).value = "");
+  $("qrCanvas").style.display = "none";
+  $("qrPanel").classList.add("hidden");
+  $("sheetStatus").innerHTML = "";
+  $("resultMessage").textContent = "";
+  activateStep(1);
+  loadContent();
+});
+
+/* Google Sheets - write the full response row */
+function val(id) { return ($(id) && $(id).value ? $(id).value.trim() : ""); }
+
+async function sendToSheet(t) {
+  const statusEl = $("sheetStatus");
+  const med = medData(medKey);
+  const payload = {
+    timestamp: new Date().toISOString(),
+    session_id: SESSION_ID,
+    language: lang,
+    med_key: medKey,
+    medication: med ? med.name : medKey,
+    pre_q1: val("pre1"),   pre_q2: val("pre2"),   pre_q3: val("pre3"),
+    post_q1: val("post1"), post_q2: val("post2"), post_q3: val("post3"),
+    pre_score: preScore,
+    post_score: postScore,
+    improvement: postScore - preScore,
+    pre_q1_score: preScores.q1, pre_q2_score: preScores.q2, pre_q3_score: preScores.q3,
+    post_q1_score: postScores.q1, post_q2_score: postScores.q2, post_q3_score: postScores.q3,
+    duration_seconds: Math.round((Date.now() - SESSION_START) / 1000),
+    user_agent: navigator.userAgent
+  };
+
+  statusEl.innerHTML = '<span class="status-badge">...</span>';
+
+  // text/plain keeps this a "simple" request: no CORS preflight, and we can
+  // still read Apps Script's reply to confirm the row was actually written.
+  try {
+    const res = await fetch(SHEET_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload)
+    });
+    const out = await res.json();
+    if (out && out.ok) {
+      statusEl.innerHTML = `<span class="status-badge sent">${t.sheetSent || "\u2713 Saved"}</span>`;
+      return;
+    }
+    throw new Error(out && out.error ? out.error : "Unknown response");
+  } catch (err) {
+    console.warn("Readable POST failed, retrying opaque:", err);
+  }
+
+  // Fallback: fire-and-forget, works even if CORS is misconfigured
+  try {
+    await fetch(SHEET_URL, {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload)
+    });
+    statusEl.innerHTML = `<span class="status-badge sent">${t.sheetSent || "\u2713 Saved"}</span>`;
+  } catch (err) {
+    statusEl.innerHTML = `<span class="status-badge error">${t.sheetError || "Could not save \u2014 please tell staff"}</span>`;
+    console.error("Sheet error:", err);
+  }
+}
+
+/*  Init  */
+renderLangControl();
+applyLang();
+setAppState("loading");
+loadContent();
+
+$("retryBtn").addEventListener("click", () => loadContent());
+$("staleRetry").addEventListener("click", () => loadContent());
+
+/* ══════════════════════════════════════════════
+   VOICE INPUT
+══════════════════════════════════════════════ */
+
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null;
+let activeBtn = null;
+
+if (!SpeechRecognition) {
+  // Hide all mic buttons gracefully
+  document.body.classList.add("no-voice-support");
+} else {
+  recognition = new SpeechRecognition();
+  recognition.continuous = false;
+  recognition.interimResults = false;
+
+  recognition.onstart = () => {
+    if (activeBtn) activeBtn.classList.add("listening");
+  };
+
+  recognition.onend = () => {
+    if (activeBtn) {
+      activeBtn.classList.remove("listening");
+      activeBtn.textContent = "🎤";
+    }
+    activeBtn = null;
+  };
+
+  recognition.onerror = (e) => {
+    if (activeBtn) {
+      activeBtn.classList.remove("listening");
+      activeBtn.textContent = "🎤";
+    }
+    activeBtn = null;
+    if (e.error === "not-allowed") {
+      showToast("Microphone access denied. Please allow it in your browser.", 3500);
+    }
+  };
+
+  recognition.onresult = (event) => {
+    const transcript = event.results[0][0].transcript.trim();
+    handleVoiceResult(transcript);
+  };
+}
+
+let voiceMode = null; // "select" | "input"
+let voiceTarget = null; // input element id for "input" mode
+
+function startVoice(btn, mode, targetId = null) {
+  if (!recognition) return;
+
+  // Stop if already listening to the same button
+  if (activeBtn === btn) {
+    recognition.stop();
+    return;
+  }
+
+  // Stop any previous session
+  if (activeBtn) {
+    recognition.stop();
+    activeBtn.classList.remove("listening");
+    activeBtn.textContent = "🎤";
+  }
+
+  voiceMode = mode;
+  voiceTarget = targetId;
+  activeBtn = btn;
+  btn.textContent = "⏹";
+
+  recognition.lang = speechLang();
+
+  try {
+    recognition.start();
+  } catch(e) {
+    // Already started edge case
+    recognition.stop();
+  }
+}
+
+function handleVoiceResult(transcript) {
+  if (voiceMode === "select") {
+    const matches = fuzzyMatch(transcript);
+    if (matches.length) {
+      selectMed(matches[0]);
+    } else {
+      // Not in local list — try AI
+      $("medInput").value = transcript;
+      closeSuggestions();
+      const match = fuzzyMatch(transcript)[0];
+      if (match) {
+        selectMed(match);
+      } else {
+        showToast("Medication not found. Try typing the name.", 3000);
+      }
+    }
+  } else if (voiceMode === "input" && voiceTarget) {
+    const el = $(voiceTarget);
+    if (el) {
+      el.value = transcript;
+    }
+  }
+}
+
+// Wire up mic buttons on text inputs
+document.querySelectorAll(".mic-btn[data-target]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    startVoice(btn, "input", btn.dataset.target);
+  });
+});
+
+// Wire up medication selector mic button
+const micSelectBtn = $("micSelect");
+if (micSelectBtn) {
+  micSelectBtn.addEventListener("click", () => {
+    startVoice(micSelectBtn, "select");
+    if (recognition && activeBtn === micSelectBtn) {
+      showToast("Listening… say a medication name", 2000);
+    }
+  });
+}
+</script>
+</body>
+</html>
