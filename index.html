@@ -892,7 +892,6 @@ let MEDS = {};
 
 let KEYWORDS = { q1: [], q2: [], q3: [] };
 const SHEET_URL = "https://script.google.com/macros/s/AKfycbwIlfvIbAoJARqLPWdOvbciiQvJM1iFtt8crPQYWHqkA0KxfzzVPcjNu5CH7P_oPgcWQQ/exec";
-                   
 
 /*  Remote content (Google Sheet) config  */
 const CONTENT_URL   = SHEET_URL + "?action=content";
@@ -1335,13 +1334,48 @@ $("preSubmitBtn").addEventListener("click", () => {
 });
 
 // Listen
+/*  Setting utterance.lang is only a request. If the device has no voice for
+    that language the browser quietly uses its default one, which reads Indic
+    script as gibberish or says nothing at all. Pick a real voice instead, and
+    say so plainly when there isn't one.  */
+function pickVoice(code) {
+  const voices = (window.speechSynthesis && speechSynthesis.getVoices()) || [];
+  if (!voices.length) return undefined;
+  const want = String(code || "").toLowerCase().replace("_", "-");
+  const base = want.split("-")[0];
+  return voices.find(v => v.lang.toLowerCase().replace("_", "-") === want)
+      || voices.find(v => v.lang.toLowerCase().replace("_", "-").split("-")[0] === base);
+}
+
+// Chrome populates the voice list asynchronously
+if (window.speechSynthesis) {
+  speechSynthesis.getVoices();
+  speechSynthesis.addEventListener("voiceschanged", () => speechSynthesis.getVoices());
+}
+
 $("listenBtn").addEventListener("click", () => {
   if (!medKey) return;
   const med = medData(medKey);
   if (!med) return;
+
+  const code = speechLang();
+  const voice = pickVoice(code);
+  const label = langMeta().label || lang;
+  console.log("Read aloud:", code, "| voice:", voice ? voice.name + " (" + voice.lang + ")" : "none available",
+              "| voices on this device:", (speechSynthesis.getVoices() || []).length);
+
+  if (!voice) {
+    showToast("Read-aloud is not available for " + label + " on this device.", 4000);
+    return;
+  }
+
   const toText = v => Array.isArray(v) ? v.join(". ") : v;
-  const utterance = new SpeechSynthesisUtterance(`${med.name}. ${toText(med.purpose)}. ${toText(med.how)}. ${toText(med.side)}`);
-  utterance.lang = speechLang();
+  const utterance = new SpeechSynthesisUtterance(
+    `${med.name}. ${toText(med.purpose)}. ${toText(med.how)}. ${toText(med.side)}`
+  );
+  utterance.voice = voice;
+  utterance.lang = voice.lang;
+  utterance.rate = 0.9;
   speechSynthesis.cancel();
   speechSynthesis.speak(utterance);
   showToast(tt().toastListen || "Reading aloud\u2026");
@@ -1540,6 +1574,12 @@ if (!SpeechRecognition) {
       activeBtn.textContent = "🎤";
     }
     activeBtn = null;
+    // stop() is asynchronous, so a mic clicked while another was live waits here
+    if (pendingStart) {
+      const p = pendingStart;
+      pendingStart = null;
+      setTimeout(() => beginVoice(p.btn, p.mode, p.targetId), 60);
+    }
   };
 
   recognition.onerror = (e) => {
@@ -1548,9 +1588,18 @@ if (!SpeechRecognition) {
       activeBtn.textContent = "🎤";
     }
     activeBtn = null;
-    if (e.error === "not-allowed") {
-      showToast("Microphone access denied. Please allow it in your browser.", 3500);
-    }
+    pendingStart = null;
+    console.warn("Speech recognition error:", e.error, "| language requested:", recognition.lang);
+    const label = langMeta().label || lang;
+    const messages = {
+      "not-allowed": "Microphone access denied. Please allow it in your browser.",
+      "service-not-allowed": "Voice input needs a secure (https) connection.",
+      "language-not-supported": "Voice input is not available for " + label + " on this browser. Please type instead.",
+      "no-speech": "Nothing was heard. Please try again.",
+      "audio-capture": "No microphone was found on this device.",
+      "network": "Voice input needs an internet connection."
+    };
+    showToast(messages[e.error] || ("Voice input failed (" + e.error + "). Please type instead."), 3500);
   };
 
   recognition.onresult = (event) => {
@@ -1559,36 +1608,44 @@ if (!SpeechRecognition) {
   };
 }
 
+let pendingStart = null;
 let voiceMode = null; // "select" | "input"
 let voiceTarget = null; // input element id for "input" mode
 
 function startVoice(btn, mode, targetId = null) {
   if (!recognition) return;
 
-  // Stop if already listening to the same button
+  // Tapping the live button again stops it
   if (activeBtn === btn) {
+    pendingStart = null;
     recognition.stop();
     return;
   }
 
-  // Stop any previous session
+  // Another mic is live: queue this one and let onend start it. Calling
+  // start() straight after stop() throws, which used to leave the second
+  // mic dead until the page was reloaded.
   if (activeBtn) {
+    pendingStart = { btn: btn, mode: mode, targetId: targetId };
     recognition.stop();
-    activeBtn.classList.remove("listening");
-    activeBtn.textContent = "🎤";
+    return;
   }
 
+  beginVoice(btn, mode, targetId);
+}
+
+function beginVoice(btn, mode, targetId) {
   voiceMode = mode;
   voiceTarget = targetId;
   activeBtn = btn;
   btn.textContent = "⏹";
-
   recognition.lang = speechLang();
 
   try {
     recognition.start();
-  } catch(e) {
-    // Already started edge case
+  } catch (e) {
+    console.warn("Could not start recognition:", e);
+    pendingStart = { btn: btn, mode: mode, targetId: targetId };
     recognition.stop();
   }
 }
@@ -1612,7 +1669,10 @@ function handleVoiceResult(transcript) {
   } else if (voiceMode === "input" && voiceTarget) {
     const el = $(voiceTarget);
     if (el) {
-      el.value = transcript;
+      // append, so a patient answering in two breaths keeps both halves
+      const existing = el.value.trim();
+      el.value = existing ? existing + " " + transcript : transcript;
+      el.dispatchEvent(new Event("input", { bubbles: true }));
     }
   }
 }
