@@ -891,7 +891,9 @@
 let MEDS = {};
 
 let KEYWORDS = { q1: [], q2: [], q3: [] };
+let CONCEPTS = {};   /* clinician-authored rubric from the Concepts tab */
 const SHEET_URL = "https://script.google.com/macros/s/AKfycbwIlfvIbAoJARqLPWdOvbciiQvJM1iFtt8crPQYWHqkA0KxfzzVPcjNu5CH7P_oPgcWQQ/exec";
+
 
 /*  Remote content (Google Sheet) config  */
 const CONTENT_URL   = SHEET_URL + "?action=content";
@@ -1050,6 +1052,9 @@ function applyContent(data) {
       KEYWORDS[q] = [...new Set([...(KEYWORDS[q] || []), ...data.keywords[q]])];
     });
   }
+  if (data.concepts) CONCEPTS = data.concepts;
+
+  IDF = null;   // recompute inverse document frequency over the new corpus
   return true;
 }
 
@@ -1099,34 +1104,176 @@ async function loadContent() {
 }
 
 /*  Scoring  */
+/*  ── Scoring v2 ──────────────────────────────────────────────────
+    Each question is scored 0-3 by how many distinct key concepts from the
+    medication card the answer covers, so the test can tell "blood sugar"
+    from "controls blood sugar, taken twice a day with meals".
+
+    Concepts are chosen by inverse document frequency across every card in
+    the sheet: words that appear on most cards ("doctor", "daily", "dose")
+    carry little information, so the ones that distinguish THIS medication
+    are what earn points.  */
+const SCORE_VERSION = "3.0";
+const SCORE_MAX_PER_Q = 3;
+const SCORE_MAX = SCORE_MAX_PER_Q * 3;
+
+const STOP_WORDS = new Set(["the","and","or","for","in","of","to","a","an","is","it","be","as","at",
+  "by","on","not","this","with","are","was","has","have","that","from","your","you","if","may","can",
+  "do","its","any","i","my","we","me","take","taking","taken","takes","use","used","using","doctor",
+  "pharmacist","medicine","medication","tell","call","right","away","every","each","day","daily",
+  "time","times","dose","doses","will","should","when","also","about","them","they","get","make",
+  "para","que","con","las","los","del","una","uno","por","como","más","pero","sus","est","est\u00e1"]);
+
+function tokenize(str) {
+  return (String(str).toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}\p{M}\u200c\u200d]{2,}/gu) || [])
+    .filter(w => !STOP_WORDS.has(w));
+}
+
+/*  Answers that state no knowledge never earn points, however they overlap  */
+const NO_ANSWER_PHRASES = ["don't know","dont know","do not know","dunno","no idea","not sure",
+  "unsure","no clue","can't remember","cant remember","forgot","no se","no s\u00e9","ni idea",
+  "no lo se","no estoy seguro"];
+const NO_ANSWER_EXACT = ["none","nothing","na","n/a","no","-","?","??","idk"];
+
+function isNoAnswer(val) {
+  const v = val.trim().toLowerCase().replace(/[.!]+$/, "");
+  if (NO_ANSWER_EXACT.indexOf(v) !== -1) return true;
+  const extra = KEYWORDS.unknown || [];
+  return NO_ANSWER_PHRASES.concat(extra).some(pRaw => {
+    const ph = String(pRaw).toLowerCase().trim();
+    return ph.length > 2 && v.indexOf(ph) !== -1;
+  });
+}
+
+/*  Inverse document frequency over every card the sheet supplied  */
+let IDF = null;
+
+function buildIdf() {
+  // one corpus per language: a word that appears on every Tamil card is
+  // uninformative in Tamil, however rare it looks next to the English ones
+  const corpora = {};
+  Object.keys(MEDS).forEach(key => {
+    Object.keys(MEDS[key]).forEach(code => {
+      const m = MEDS[key][code];
+      if (!m) return;
+      const text = ["purpose","how","side","dosageWarning"]
+        .map(f => Array.isArray(m[f]) ? m[f].join(" ") : (m[f] || "")).join(" ");
+      (corpora[code] = corpora[code] || []).push(new Set(tokenize(text)));
+    });
+  });
+  IDF = {};
+  Object.keys(corpora).forEach(code => {
+    const df = new Map();
+    corpora[code].forEach(d => d.forEach(w => df.set(w, (df.get(w) || 0) + 1)));
+    IDF[code] = { n: corpora[code].length, df: df };
+  });
+}
+
+function idfOf(word, code) {
+  if (!IDF) buildIdf();
+  const c = IDF[code] || IDF.en;
+  if (!c) return 1;
+  return Math.log((c.n + 1) / ((c.df.get(word) || 0) + 1));
+}
+
+/*  The handful of words that best characterise this field of this card  */
+function conceptsFor(key, field, l = lang) {
+  const entry = MEDS[key];
+  if (!entry || !field) return [];
+  const m = entry[l] || {};
+  const en = entry.en || {};
+  const own = Array.isArray(m[field]) ? m[field].join(" ") : m[field];
+  // score against the corpus the text actually came from
+  const code = (own && String(own).trim()) ? l : "en";
+  const val = (own && String(own).trim()) ? own
+            : ((Array.isArray(en[field]) ? en[field].join(" ") : en[field]) || "");
+  // only discount common words once the corpus is big enough for "common"
+  // to mean anything — a half-translated tab has too few cards to judge
+  if (!IDF) buildIdf();
+  const corpusSize = (IDF[code] && IDF[code].n) || 0;
+  const floor = corpusSize >= 5 ? 0.15 : 0;
+
+  const uniq = [...new Set(tokenize(val))];
+  return uniq
+    .map(w => ({ w: w, score: idfOf(w, code) }))
+    .filter(o => o.score > floor)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 6)
+    .map(o => o.w);
+}
+
+/*  Prefix matching instead of the old substring test, which let "take"
+    match "treatment". 4 characters for Latin script, 3 for Indic, where
+    words are longer per concept.  */
+function wordMatches(answerWord, concept) {
+  if (answerWord === concept) return true;
+  // Indic words carry case and tense endings, so prefix matching is needed —
+  // but 3 characters is too loose (மருந்து "medicine" vs மருத்துவர் "doctor"
+  // share மரு), so require 5 there and 4 for Latin script.
+  const latin = /^[a-z0-9]+$/.test(concept);
+  const n = latin ? 4 : 5;
+  if (concept.length < n || answerWord.length < n) return false;
+  return concept.slice(0, n) === answerWord.slice(0, n);
+}
+
+const FIELD_FOR_INPUT = { pre1:"purpose", pre2:"how", pre3:"side",
+                          post1:"purpose", post2:"how", post3:"side" };
+
+/*  Does the answer convey this authored concept?  */
+function conceptHit(val, answerWords, concept) {
+  return concept.terms.some(term => {
+    if (term.indexOf(" ") !== -1) return val.indexOf(term) !== -1;  // phrase
+    if (val.indexOf(term) !== -1) return true;
+    return answerWords.some(w => wordMatches(w, term));            // single word
+  });
+}
+
+/*  Which scoring method was used, for the record  */
+let lastScoreMethod = {};
+
 function scoreInput(inputId, keywords) {
-  const val = $(inputId).value.toLowerCase().trim();
-  if (!val || val.length < 2) return 0;
+  const raw = ($(inputId) && $(inputId).value ? $(inputId).value : "").trim();
+  if (raw.length < 2) { lastScoreMethod[inputId] = "blank"; return 0; }
+  const val = raw.toLowerCase();
+  if (isNoAnswer(val)) { lastScoreMethod[inputId] = "no-answer"; return 0; }
 
-  // 1. Direct keyword match (original method)
-  if (keywords.some(k => val.includes(k.toLowerCase()))) return 1;
+  const field = FIELD_FOR_INPUT[inputId];
+  const answerWords = [...new Set(tokenize(val))];
+  const authored = (CONCEPTS[medKey] || {})[field] || [];
 
-  // 2. Semantic overlap: compare patient answer against the actual med card text
-  const fieldMap = { pre1:"purpose", pre2:"how", pre3:"side", post1:"purpose", post2:"how", post3:"side" };
-  const field = fieldMap[inputId];
-  if (field && medKey && MEDS[medKey]) {
-    const entry = MEDS[medKey] || {};
-    const sources = [entry[lang] && entry[lang][field], medData(medKey)[field]];
-    const medText = sources
-      .map(v => Array.isArray(v) ? v.join(" ") : (v || ""))
-      .join(" ")
-      .toLowerCase();
-    const stopWords = new Set(["the","and","or","for","in","of","to","a","an","is","it","be","as","at","by","on","not","this","with","are","was","has","have","that","from","your","you","if","may","can","do","its","any","i","my","we","me","take","taken","used","use"]);
-    // \p{M} keeps Telugu/Devanagari vowel signs attached; ZWNJ/ZWJ keep conjuncts whole
-    const tokenize = str => (str.match(/[\p{L}\p{N}][\p{L}\p{N}\p{M}\u200c\u200d]{2,}/gu) || [])
-      .filter(w => !stopWords.has(w));
-    const answerWords = tokenize(val);
-    const cardWords = new Set(tokenize(medText));
-    // Award point if any meaningful answer word appears in or partially matches med card text
-    const overlap = answerWords.filter(w => cardWords.has(w) || [...cardWords].some(c => c.includes(w) || w.includes(c)));
-    if (overlap.length >= 1) return 1;
+  let points, hits, method;
+
+  if (authored.length) {
+    // 1. clinician-authored rubric: what share of the required concepts did
+    //    they convey. Normalised, so a field with two concepts and one with
+    //    four both score out of 3 and the scale stays comparable.
+    hits = authored.filter(c => conceptHit(val, answerWords, c)).map(c => c.concept);
+    points = Math.min(SCORE_MAX_PER_Q,
+                      Math.round(SCORE_MAX_PER_Q * hits.length / authored.length));
+    if (hits.length > 0 && points === 0) points = 1;
+    method = "concepts";
+  } else {
+    // 2. fall back to concepts derived from the card text
+    const derived = conceptsFor(medKey, field);
+    const matched = new Set();
+    answerWords.forEach(w => derived.forEach(c => { if (wordMatches(w, c)) matched.add(c); }));
+    hits = [...matched];
+    points = Math.min(SCORE_MAX_PER_Q, hits.length);
+    method = "auto";
   }
-  return 0;
+
+  // a curated keyword still guarantees a point, for answers phrased
+  // differently from the card
+  if (points === 0 && (keywords || []).some(k => val.indexOf(String(k).toLowerCase()) !== -1)) {
+    points = 1;
+    method += "+keyword";
+  }
+
+  lastScoreMethod[inputId] = method;
+  if (localStorage.getItem("scoreDebug") === "1") {
+    console.log(inputId, "->", points, "(" + method + ") | matched:", hits);
+  }
+  return points;
 }
 
 /*  Render UI text  */
@@ -1443,15 +1590,15 @@ $("postSubmitBtn").addEventListener("click", () => {
   postScore = postScores.q1 + postScores.q2 + postScores.q3;
   const improvement = postScore - preScore;
 
-  $("preVal").textContent = preScore + "/3";
-  $("postVal").textContent = postScore + "/3";
+  $("preVal").textContent = preScore + "/" + SCORE_MAX;
+  $("postVal").textContent = postScore + "/" + SCORE_MAX;
   const sign = improvement > 0 ? "+" : improvement < 0 ? "" : "±";
   $("improvVal").textContent = sign + improvement;
   $("improvVal").className = "result-stat-value" + (improvement > 0 ? " positive" : "");
 
   const t = tt();
   const msgEl = $("resultMessage");
-  if (improvement > 0 || postScore >= 2) {
+  if (improvement > 0 || postScore >= Math.ceil(SCORE_MAX * 0.67)) {
     msgEl.className = "result-message good";
     msgEl.textContent = t.msgGood || "Nice work — your understanding improved.";
   } else {
@@ -1500,6 +1647,9 @@ async function sendToSheet(t) {
     improvement: postScore - preScore,
     pre_q1_score: preScores.q1, pre_q2_score: preScores.q2, pre_q3_score: preScores.q3,
     post_q1_score: postScores.q1, post_q2_score: postScores.q2, post_q3_score: postScores.q3,
+    score_version: SCORE_VERSION,
+    score_max: SCORE_MAX,
+    score_method: (CONCEPTS[medKey] && CONCEPTS[medKey].purpose) ? "concepts" : "auto",
     duration_seconds: Math.round((Date.now() - SESSION_START) / 1000),
     user_agent: navigator.userAgent
   };
@@ -1566,6 +1716,8 @@ if (!SpeechRecognition) {
 
   recognition.onstart = () => {
     if (activeBtn) activeBtn.classList.add("listening");
+    // fires when the microphone is genuinely live, not when the button was clicked
+    showToast(voiceMode === "select" ? "🎤 Listening — say a medication name" : "🎤 Listening — speak now", 2500);
   };
 
   recognition.onend = () => {
@@ -1689,9 +1841,6 @@ const micSelectBtn = $("micSelect");
 if (micSelectBtn) {
   micSelectBtn.addEventListener("click", () => {
     startVoice(micSelectBtn, "select");
-    if (recognition && activeBtn === micSelectBtn) {
-      showToast("Listening… say a medication name", 2000);
-    }
   });
 }
 </script>
