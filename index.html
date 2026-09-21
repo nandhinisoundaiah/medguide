@@ -892,8 +892,7 @@ let MEDS = {};
 
 let KEYWORDS = { q1: [], q2: [], q3: [] };
 let CONCEPTS = {};   /* clinician-authored rubric from the Concepts tab */
-const SHEET_URL = "https://script.google.com/macros/s/AKfycbwIlfvIbAoJARqLPWdOvbciiQvJM1iFtt8crPQYWHqkA0KxfzzVPcjNu5CH7P_oPgcWQQ/exec";
-
+const SHEET_URL = "https://script.google.com/macros/s/AKfycbxaMYrfKlPnwhbGUKQIqko-XqVr4PdqYgT56j8Zdp7k2P9Sf7NdV0zlmtfdBRAmFsCPcA/exec";
 
 /*  Remote content (Google Sheet) config  */
 const CONTENT_URL   = SHEET_URL + "?action=content";
@@ -1364,14 +1363,101 @@ function activateStep(n) {
 //  Smart medication input + autocomplete 
 let MED_ALIASES = {};   /* comes from the aliases column of each Medications_<lang> tab */
 
-function fuzzyMatch(query) {
-  const q = query.toLowerCase().trim();
-  if (!q) return [];
-  return Object.keys(MEDS).filter(key => {
-    const terms = [...(MED_ALIASES[key] || [])];
-    Object.values(MEDS[key]).forEach(v => { if (v && v.name) terms.push(v.name.toLowerCase()); });
-    return terms.some(a => a.startsWith(q) || a.includes(q));
+/*  ── Medication name matching ────────────────────────────────────
+    Speech recognition rarely reproduces a stored name exactly: Telugu
+    names carry an invisible joiner that recognisers drop, spellings
+    vary (மெட்ஃபார்மின் / மெட்பார்மின்), and people say "metformin
+    tablet". So names are normalised, compared both ways round, reduced
+    to a consonant skeleton for Indic scripts, and finally scored by
+    edit distance.  */
+function normName(str) {
+  return String(str || "").normalize("NFC").toLowerCase()
+    .replace(/[\u200b-\u200d\ufeff]/g, "")          // zero-width joiners
+    .replace(/[()\[\]{},.;:\/\\\-–—_"']/g, " ")   // punctuation, brackets
+    .replace(/\s+/g, " ").trim();
+}
+
+// vowel signs and viramas removed: survives most spelling variation
+function skeleton(str) {
+  return normName(str).replace(/[\p{M}\u0b83]/gu, "").replace(/\s+/g, "");
+}
+
+function editDistance(a, b) {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1,
+                        prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+function similarity(a, b) {
+  if (!a || !b) return 0;
+  return 1 - editDistance(a, b) / Math.max(a.length, b.length);
+}
+
+function medTerms(key) {
+  const terms = new Set();
+  (MED_ALIASES[key] || []).forEach(a => terms.add(normName(a)));
+  Object.values(MEDS[key] || {}).forEach(v => {
+    if (!v || !v.name) return;
+    terms.add(normName(v.name));
+    // "మెట్‌ఫార్మిన్ (Metformin)" also yields each part on its own
+    String(v.name).split(/[()\/]/).forEach(part => {
+      const n = normName(part);
+      if (n) terms.add(n);
+    });
   });
+  terms.delete("");
+  return [...terms];
+}
+
+function matchScore(query, key) {
+  const q = normName(query);
+  if (!q) return 0;
+  const qSkel = skeleton(query);
+  const qTokens = q.split(" ").filter(t => t.length >= 3);
+  let best = 0;
+
+  medTerms(key).forEach(t => {
+    const tSkel = skeleton(t);
+    let sc = 0;
+    if (t === q) sc = 1;
+    else if (t.startsWith(q)) sc = 0.96;                           // typing
+    else if (q.length >= 3 && t.includes(q)) sc = 0.92;
+    else if (t.length >= 4 && q.includes(t)) sc = 0.92;             // "metformin tablet"
+    else if (qTokens.some(tok => tok.length >= 4 && t.split(" ").includes(tok))) sc = 0.9;
+    else if (tSkel.length >= 3 && qSkel === tSkel) sc = 0.9;
+    else if (tSkel.length >= 4 && (qSkel.includes(tSkel) || tSkel.includes(qSkel) && qSkel.length >= 4)) sc = 0.85;
+    else {
+      sc = Math.max(
+        similarity(q, t),
+        similarity(qSkel, tSkel),
+        ...qTokens.map(tok => similarity(tok, t))
+      ) * 0.9;
+    }
+    if (sc > best) best = sc;
+  });
+  return best;
+}
+
+function rankMatches(query, threshold = 0.7) {
+  if (!normName(query)) return [];
+  return Object.keys(MEDS)
+    .map(key => ({ key: key, score: matchScore(query, key) }))
+    .filter(m => m.score >= threshold)
+    .sort((a, b) => b.score - a.score);
+}
+
+function fuzzyMatch(query) {
+  return rankMatches(query).map(m => m.key);
 }
 
 function selectMed(key) {
@@ -1804,19 +1890,26 @@ function beginVoice(btn, mode, targetId) {
 
 function handleVoiceResult(transcript) {
   if (voiceMode === "select") {
-    const matches = fuzzyMatch(transcript);
-    if (matches.length) {
-      selectMed(matches[0]);
+    const ranked = rankMatches(transcript);
+    console.log("Heard:", JSON.stringify(transcript), "| candidates:",
+                ranked.slice(0, 3).map(m => m.key + " " + m.score.toFixed(2)).join(", ") || "none");
+
+    // Only auto-select when one candidate clearly beats the rest. A tie
+    // between two drugs must never be settled by list order.
+    const clearWinner = ranked.length === 1 ||
+      (ranked.length > 1 && ranked[0].score - ranked[1].score >= 0.08);
+
+    if (ranked.length && clearWinner) {
+      selectMed(ranked[0].key);
+    } else if (ranked.length) {
+      // close call: let the patient pick rather than guessing
+      $("medInput").value = transcript;
+      renderSuggestions(ranked.slice(0, 5).map(m => m.key), transcript);
+      showToast(tt().pickFromList || "Tap your medication in the list", 3000);
     } else {
-      // Not in local list — try AI
       $("medInput").value = transcript;
       closeSuggestions();
-      const match = fuzzyMatch(transcript)[0];
-      if (match) {
-        selectMed(match);
-      } else {
-        showToast("Medication not found. Try typing the name.", 3000);
-      }
+      showToast(tt().medNotFound || "Medication not found. Try typing the name.", 3000);
     }
   } else if (voiceMode === "input" && voiceTarget) {
     const el = $(voiceTarget);
