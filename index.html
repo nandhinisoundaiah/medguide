@@ -1131,7 +1131,9 @@ function tokenize(str) {
 /*  Answers that state no knowledge never earn points, however they overlap  */
 const NO_ANSWER_PHRASES = ["don't know","dont know","do not know","dunno","no idea","not sure",
   "unsure","no clue","can't remember","cant remember","forgot","no se","no s\u00e9","ni idea",
-  "no lo se","no estoy seguro"];
+  "no lo se","no estoy seguro",
+  "తెలీదు","తెలియదు","తెలియదండి","నాకు తెలియదు","గుర్తు లేదు","ఏమో",
+  "தெரியாது","தெரியலை","தெரியல","எனக்குத் தெரியாது","நினைவில்லை","ஞாபகம் இல்லை"];
 const NO_ANSWER_EXACT = ["none","nothing","na","n/a","no","-","?","??","idk"];
 
 function isNoAnswer(val) {
@@ -1840,9 +1842,15 @@ if (!SpeechRecognition) {
     showToast(messages[e.error] || ("Voice input failed (" + e.error + "). Please type instead."), 3500);
   };
 
+  recognition.maxAlternatives = 5;
   recognition.onresult = (event) => {
-    const transcript = event.results[0][0].transcript.trim();
-    handleVoiceResult(transcript);
+    const result = event.results[0];
+    const alternatives = [];
+    for (let i = 0; i < result.length; i++) {
+      const t = (result[i].transcript || "").trim();
+      if (t && alternatives.indexOf(t) === -1) alternatives.push(t);
+    }
+    handleVoiceResult(alternatives[0] || "", alternatives);
   };
 }
 
@@ -1872,12 +1880,24 @@ function startVoice(btn, mode, targetId = null) {
   beginVoice(btn, mode, targetId);
 }
 
+/*  Drug names are English/Latin words even when the patient speaks Telugu
+    or Tamil, and an Indic model turns "metformin" into Indic words that
+    sound similar (ఆమెన్). For the medication-name mic, use Indian English,
+    which is trained on Indian pronunciation of English terms. Answers are
+    still recognised in the patient's own language.  */
+function nameSpeechLang() {
+  const code = speechLang();
+  if (/^(en|es)(-|$)/i.test(code)) return code;
+  if (/-IN$/i.test(code)) return "en-IN";
+  return "en-US";
+}
+
 function beginVoice(btn, mode, targetId) {
   voiceMode = mode;
   voiceTarget = targetId;
   activeBtn = btn;
   btn.textContent = "⏹";
-  recognition.lang = speechLang();
+  recognition.lang = mode === "select" ? nameSpeechLang() : speechLang();
 
   try {
     recognition.start();
@@ -1888,11 +1908,34 @@ function beginVoice(btn, mode, targetId) {
   }
 }
 
-function handleVoiceResult(transcript) {
+function rankAcross(alternatives, threshold) {
+  const best = {};
+  alternatives.forEach(alt => {
+    rankMatches(alt, threshold).forEach(m => {
+      if (!best[m.key] || m.score > best[m.key]) best[m.key] = m.score;
+    });
+  });
+  return Object.keys(best).map(k => ({ key: k, score: best[k] }))
+    .sort((a, b) => b.score - a.score);
+}
+
+function handleVoiceResult(transcript, alternatives) {
   if (voiceMode === "select") {
-    const ranked = rankMatches(transcript);
-    console.log("Heard:", JSON.stringify(transcript), "| candidates:",
+    const alts = (alternatives && alternatives.length) ? alternatives : [transcript];
+    let ranked = rankAcross(alts, 0.7);
+    console.log("Heard:", JSON.stringify(alts), "| candidates:",
                 ranked.slice(0, 3).map(m => m.key + " " + m.score.toFixed(2)).join(", ") || "none");
+
+    // nothing confident: offer the closest few rather than a dead end
+    if (!ranked.length) {
+      const near = rankAcross(alts, 0.45).slice(0, 4);
+      if (near.length) {
+        $("medInput").value = "";
+        renderSuggestions(near.map(m => m.key), "");
+        showToast(tt().didYouMean || "Did you mean one of these?", 3500);
+        return;
+      }
+    }
 
     // Only auto-select when one candidate clearly beats the rest. A tie
     // between two drugs must never be settled by list order.
