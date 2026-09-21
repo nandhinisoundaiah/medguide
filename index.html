@@ -686,8 +686,11 @@
     <p lang="te" style="font-size:14px;line-height:1.7;margin-bottom:16px;color:var(--gray-600);">
       మందుల సమాచారం అందుబాటులో లేదు. దయచేసి క్లినిక్ సిబ్బందికి తెలియజేయండి — ఈ పేజీని ఉపయోగించవద్దు.
     </p>
+    <p lang="ta" style="font-size:14px;line-height:1.7;margin-bottom:16px;color:var(--gray-600);">
+      மருந்து தகவல் கிடைக்கவில்லை. தயவுசெய்து கிளினிக் பணியாளரிடம் தெரிவிக்கவும் — இந்தப் பக்கத்தை நம்ப வேண்டாம்.
+    </p>
     <button class="btn btn-primary" id="retryBtn" style="margin-top:0;">
-      Retry · Reintentar · మళ్లీ ప్రయత్నించండి
+      Retry · Reintentar · మళ్లీ ప్రయత్నించండి · மீண்டும் முயற்சிக்கவும்
     </button>
     <p id="errorDetail" style="font-size:11px;color:var(--gray-400);margin-top:12px;word-break:break-word;"></p>
   </div>
@@ -894,6 +897,7 @@ let KEYWORDS = { q1: [], q2: [], q3: [] };
 let CONCEPTS = {};   /* clinician-authored rubric from the Concepts tab */
 const SHEET_URL = "https://script.google.com/macros/s/AKfycbwIlfvIbAoJARqLPWdOvbciiQvJM1iFtt8crPQYWHqkA0KxfzzVPcjNu5CH7P_oPgcWQQ/exec";
   
+
 /*  Remote content (Google Sheet) config  */
 const CONTENT_URL   = SHEET_URL + "?action=content";
 const CACHE_KEY     = "medTool.content.v1";
@@ -1115,6 +1119,14 @@ async function loadContent() {
 const SCORE_VERSION = "3.0";
 const SCORE_MAX_PER_Q = 3;
 const SCORE_MAX = SCORE_MAX_PER_Q * 3;
+
+/*  Patients see "questions answered well, out of 3". A question counts once
+    it scores 2 of its 3 points, i.e. the answer conveyed most of what the
+    card says. The full 0-9 detail is still recorded for analysis.  */
+const SHOWN_THRESHOLD = 2;
+function shownScore(scores) {
+  return ["q1", "q2", "q3"].filter(q => (scores[q] || 0) >= SHOWN_THRESHOLD).length;
+}
 
 const STOP_WORDS = new Set(["the","and","or","for","in","of","to","a","an","is","it","be","as","at",
   "by","on","not","this","with","are","was","has","have","that","from","your","you","if","may","can",
@@ -1678,15 +1690,20 @@ $("postSubmitBtn").addEventListener("click", () => {
   postScore = postScores.q1 + postScores.q2 + postScores.q3;
   const improvement = postScore - preScore;
 
-  $("preVal").textContent = preScore + "/" + SCORE_MAX;
-  $("postVal").textContent = postScore + "/" + SCORE_MAX;
-  const sign = improvement > 0 ? "+" : improvement < 0 ? "" : "±";
-  $("improvVal").textContent = sign + improvement;
-  $("improvVal").className = "result-stat-value" + (improvement > 0 ? " positive" : "");
+  const preShown = shownScore(preScores);
+  const postShown = shownScore(postScores);
+  const shownChange = postShown - preShown;
 
+  $("preVal").textContent = preShown + "/3";
+  $("postVal").textContent = postShown + "/3";
+  const sign = shownChange > 0 ? "+" : shownChange < 0 ? "" : "±";
+  $("improvVal").textContent = sign + shownChange;
+  $("improvVal").className = "result-stat-value" + (shownChange > 0 ? " positive" : "");
+
+  // message follows what the patient can see, so the two never disagree
   const t = tt();
   const msgEl = $("resultMessage");
-  if (improvement > 0 || postScore >= Math.ceil(SCORE_MAX * 0.67)) {
+  if (shownChange > 0 || postShown >= 2) {
     msgEl.className = "result-message good";
     msgEl.textContent = t.msgGood || "Nice work — your understanding improved.";
   } else {
@@ -1737,6 +1754,8 @@ async function sendToSheet(t) {
     post_q1_score: postScores.q1, post_q2_score: postScores.q2, post_q3_score: postScores.q3,
     score_version: SCORE_VERSION,
     score_max: SCORE_MAX,
+    pre_shown: shownScore(preScores),
+    post_shown: shownScore(postScores),
     score_method: (CONCEPTS[medKey] && CONCEPTS[medKey].purpose) ? "concepts" : "auto",
     duration_seconds: Math.round((Date.now() - SESSION_START) / 1000),
     user_agent: navigator.userAgent
